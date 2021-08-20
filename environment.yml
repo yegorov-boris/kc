@@ -1,0 +1,5 @@
+name: kc
+channels:
+- pytorch
+dependencies:
+- pytorch
