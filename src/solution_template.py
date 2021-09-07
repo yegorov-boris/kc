@@ -4,133 +4,71 @@ from torch import Tensor, sort
 
 
 def num_swapped_pairs(ys_true: Tensor, ys_pred: Tensor) -> int:
-    def mergeSort(arr):
-        # A temp_arr is created to store
-        # sorted array in merge function
-        n = len(arr)
-        temp_arr = [0] * n
-        return _mergeSort(arr, temp_arr, 0, n - 1)
+    s_pred, args = sort(ys_pred, descending=True, dim=0)
+    s_true = ys_true[args]
+    c = 0
+    for i in range(1, s_true.shape[0]):
+        c += s_true[i:][s_true[i:] > s_true[i-1]].shape[0]
+    return c
 
-    # This Function will use MergeSort to count inversions
-
-    def _mergeSort(arr, temp_arr, left, right):
-
-        # A variable inv_count is used to store
-        # inversion counts in each recursive call
-
-        inv_count = 0
-
-        # We will make a recursive call if and only if
-        # we have more than one elements
-
-        if left < right:
-            # mid is calculated to divide the array into two subarrays
-            # Floor division is must in case of python
-
-            mid = (left + right) // 2
-
-            # It will calculate inversion
-            # counts in the left subarray
-
-            inv_count += _mergeSort(arr, temp_arr,
-                                    left, mid)
-
-            # It will calculate inversion
-            # counts in right subarray
-
-            inv_count += _mergeSort(arr, temp_arr,
-                                    mid + 1, right)
-
-            # It will merge two subarrays in
-            # a sorted subarray
-
-            inv_count += merge(arr, temp_arr, left, mid, right)
-        return inv_count
-
-    # This function will merge two subarrays
-    # in a single sorted subarray
-    def merge(arr, temp_arr, left, mid, right):
-        i = left  # Starting index of left subarray
-        j = mid + 1  # Starting index of right subarray
-        k = left  # Starting index of to be sorted subarray
-        inv_count = 0
-
-        # Conditions are checked to make sure that
-        # i and j don't exceed their
-        # subarray limits.
-
-        while i <= mid and j <= right:
-
-            # There will be no inversion if arr[i] <= arr[j]
-
-            if arr[i] <= arr[j]:
-                temp_arr[k] = arr[i]
-                k += 1
-                i += 1
-            else:
-                # Inversion will occur.
-                temp_arr[k] = arr[j]
-                inv_count += (mid - i + 1)
-                k += 1
-                j += 1
-
-        # Copy the remaining elements of left
-        # subarray into temporary array
-        while i <= mid:
-            temp_arr[k] = arr[i]
-            k += 1
-            i += 1
-
-        # Copy the remaining elements of right
-        # subarray into temporary array
-        while j <= right:
-            temp_arr[k] = arr[j]
-            k += 1
-            j += 1
-
-        # Copy the sorted subarray into Original array
-        for loop_var in range(left, right + 1):
-            arr[loop_var] = temp_arr[loop_var]
-
-        return inv_count
-
-    index = [(ys_true == v).nonzero().item() for v in ys_pred]
-
-    return mergeSort(list(reversed(index)))
-
-
-# print(num_swapped_pairs(Tensor([1, 2]), Tensor([2, 1])))
 
 def compute_gain(y_value: float, gain_scheme: str) -> float:
-    # допишите ваш код здесь
-    pass
+    if gain_scheme == 'const':
+        return y_value
+
+    if gain_scheme == 'exp2':
+        return pow(2.0, y_value) - 1.0
+
+    raise ValueError('incorrect gain_scheme')
 
 
 def dcg(ys_true: Tensor, ys_pred: Tensor, gain_scheme: str) -> float:
-    # допишите ваш код здесь
-    pass
+    _, args = sort(ys_pred, descending=True, dim=0)
+    return sum(map(lambda p: compute_gain(p[1].item(), gain_scheme) / log2(p[0]), enumerate(ys_true[args], 2)))
 
 
 def ndcg(ys_true: Tensor, ys_pred: Tensor, gain_scheme: str = 'const') -> float:
-    # допишите ваш код здесь
-    pass
+    return dcg(ys_true, ys_pred, gain_scheme) / dcg(ys_true, ys_true, gain_scheme)
 
 
 def precission_at_k(ys_true: Tensor, ys_pred: Tensor, k: int) -> float:
-    # допишите ваш код здесь
-    pass
+    if ys_true.sum() == 0:
+        return float(-1)
+
+    _, args = sort(ys_pred, descending=True, dim=0)
+
+    return float(ys_true[args][:k].sum() / sort(ys_true)[0][-k:].sum())
 
 
 def reciprocal_rank(ys_true: Tensor, ys_pred: Tensor) -> float:
-    # допишите ваш код здесь
-    pass
+    s_true = ys_true[sort(ys_pred, descending=True, dim=0)[1]]
+
+    if ys_true.sum() == 0:
+        return float(0)
+
+    i = 1 + s_true.nonzero(as_tuple=True)[0].item()
+
+    return float(1 / i)
 
 
 def p_found(ys_true: Tensor, ys_pred: Tensor, p_break: float = 0.15 ) -> float:
-    # допишите ваш код здесь
-    pass
+    look = 1
+    found = 0
+
+    for y in ys_true[sort(ys_pred, descending=True, dim=0)[1]]:
+        found += look * float(y)
+        look *= (1 - float(y)) * (1 - p_break)
+
+    return found
 
 
 def average_precision(ys_true: Tensor, ys_pred: Tensor) -> float:
-    # допишите ваш код здесь
-    pass
+    if ys_true.sum() == 0:
+        return float(-1)
+
+    s_true = ys_true[sort(ys_pred, descending=True, dim=0)[1]]
+    idx = s_true.nonzero(as_tuple=True)[0].add(1).to(float)
+    n = idx.shape[0]
+    cumsum = Tensor(range(1, n+1)).to(float)
+
+    return float(sum(cumsum.div(idx)) / n if n else 0)

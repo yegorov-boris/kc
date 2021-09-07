@@ -1,5 +1,11 @@
 name: kc
 channels:
 - pytorch
+- conda-forge
+- anaconda
 dependencies:
 - pytorch
+- pandas
+- jinja2
+- pip:
+  - yahoo-fin
