@@ -5,7 +5,9 @@ channels:
 - anaconda
 dependencies:
 - pytorch
-- pandas
-- jinja2
-- pip:
-  - yahoo-fin
+- catboost
+- scikit-learn
+#- pandas
+#- jinja2
+#- pip:
+#  - yahoo-fin
