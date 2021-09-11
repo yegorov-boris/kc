@@ -9,6 +9,7 @@ from catboost.datasets import msrank_10k
 from sklearn.preprocessing import StandardScaler
 from sklearn.tree import DecisionTreeRegressor
 from tqdm.auto import tqdm
+import time
 
 
 class Solution:
@@ -93,7 +94,9 @@ class Solution:
             lambdas[mask] = self._compute_lambdas(self.ys_train[mask], train_preds[mask])
 
         dtr = DecisionTreeRegressor(max_depth=self.max_depth, min_samples_leaf=self.min_samples_leaf)
-        dtr.fit(self.X_train[objects_ixs].t()[feature_ixs].t(), lambdas[objects_ixs])
+        x = self.X_train[objects_ixs].t()[feature_ixs].t()
+        y = lambdas[objects_ixs]
+        dtr.fit(x, y)
 
         return dtr, feature_ixs
 
@@ -122,15 +125,18 @@ class Solution:
 
             for query_id in np.unique(self.query_ids_train):
                 mask = self.query_ids_train == query_id
-                train_preds[mask] += self.lr * self.predict(self.X_train[mask])
+                cur_preds = dtr.predict(self.X_train[mask].t()[feature_ixs].t())
+                train_preds[mask] += self.lr * torch.Tensor(cur_preds).reshape(-1, 1).float()
 
-            test_preds = torch.zeros(self.X_test.shape[0], 1).float()
+            # test_preds = torch.zeros(self.X_test.shape[0], 1).float()
+            #
+            # for query_id in np.unique(self.query_ids_test):
+            #     mask = self.query_ids_test == query_id
+            #     cur_test_preds = self.predict(self.X_test[mask])
+            #     test_preds[mask] += self.lr * cur_test_preds
 
-            for query_id in np.unique(self.query_ids_test):
-                mask = self.query_ids_test == query_id
-                test_preds[mask] += self.lr * self.predict(self.X_test[mask])
-
-            self.scores.append(self._calc_data_ndcg(self.query_ids_test, self.ys_test, test_preds))
+            self.scores.append(self._calc_data_ndcg(self.query_ids_train, self.ys_test, train_preds))
+            # self.scores.append(self._calc_data_ndcg(self.query_ids_test, self.ys_test, test_preds))
 
         self.trees = self.trees[:1+np.argmax(self.scores)]
 
@@ -139,7 +145,8 @@ class Solution:
         preds = torch.zeros(data.shape[0], 1).float()
 
         for i, dtr in enumerate(self.trees):
-            preds += self.lr * dtr.predict(data.t()[self.feature_ixs[i]].t())
+            cur_preds = dtr.predict(data.t()[self.feature_ixs[i]].t())
+            preds += self.lr * torch.Tensor(cur_preds).reshape(-1, 1).float()
 
         return preds
 
@@ -147,7 +154,7 @@ class Solution:
         # допишите ваш код здесь
         # рассчитаем нормировку, IdealDCG
         ideal_dcg = dcg(y_true, y_true, 'exp2', y_true.shape[0])
-        N = 1 / ideal_dcg
+        N = 1 / ideal_dcg if ideal_dcg else 0
 
         # рассчитаем порядок документов согласно оценкам релевантности
         _, rank_order = torch.sort(y_true, descending=True, dim=0)
@@ -233,6 +240,11 @@ def compute_gain_diff(y_true, gain_scheme):
     return gain_diff
 
 
-s = Solution()
+s = Solution(n_estimators=30)
 
-print(s)
+ts = time.time()
+s.fit()
+print((time.time() - ts)*1000)
+
+for score in s.scores:
+    print(score)
