@@ -1,7 +1,7 @@
 import unittest
 import torch
 from math import log2
-import src.solution_template as s_t
+import src.solution_template_1_2 as s_t
 
 
 class MyTestCase(unittest.TestCase):
