@@ -13,7 +13,7 @@ import time
 
 
 class Solution:
-    def __init__(self, n_estimators: int = 100, lr: float = 0.5, ndcg_top_k: int = 10,
+    def __init__(self, n_estimators: int = 100, lr: float = 0.1, ndcg_top_k: int = 10,
                  subsample: float = 0.6, colsample_bytree: float = 0.9,
                  max_depth: int = 5, min_samples_leaf: int = 8):
         self._prepare_data()
@@ -55,6 +55,11 @@ class Solution:
             y_test.reshape(-1, 1)
         ])
 
+        n = 86
+        self.query_ids_train = self.query_ids_train[:n]
+        self.X_train = self.X_train[:n]
+        self.ys_train = self.ys_train[:n]
+
     def _scale_features_in_query_groups(self, inp_feat_array: np.ndarray,
                                         inp_query_ids: np.ndarray) -> np.ndarray:
         # допишите ваш код здесь 
@@ -83,22 +88,29 @@ class Solution:
                         train_preds: torch.FloatTensor
                         ) -> Tuple[DecisionTreeRegressor, np.ndarray]:
         # допишите ваш код здесь
-        np.random.seed(cur_tree_idx)
-        feature_ixs = np.random.choice(range(self.X_train.shape[1]), int(np.floor(self.colsample_bytree * self.X_train.shape[1])), replace=False)
-        objects_ixs = np.random.choice(range(self.X_train.shape[0]), int(np.floor(self.subsample * self.X_train.shape[0])), replace=False)
+        with torch.no_grad():
+            np.random.seed(cur_tree_idx)
+            feature_ixs = np.random.choice(range(self.X_train.shape[1]), int(np.floor(self.colsample_bytree * self.X_train.shape[1])), replace=False)
+            objects_ixs = np.random.choice(range(self.X_train.shape[0]), int(np.floor(self.subsample * self.X_train.shape[0])), replace=False)
 
-        lambdas = torch.zeros(self.ys_train.shape[0], 1)
+            lambdas = torch.zeros(self.ys_train.shape[0], 1)
+            # yp = torch.zeros(self.ys_train.shape[0], 1).float()
+            # for _ in range(10):
+            #     lambda_update = self._compute_lambdas(self.ys_train, yp)
+            #     yp -= lambda_update
+            # print(self._calc_data_ndcg(self.query_ids_train, self.ys_train, yp))
 
-        for query_id in np.unique(self.query_ids_train):
-            mask = self.query_ids_train == query_id
-            lambdas[mask] = self._compute_lambdas(self.ys_train[mask], train_preds[mask])
+            for query_id in np.unique(self.query_ids_train):
+                mask = self.query_ids_train == query_id
+                lambdas[mask] = self._compute_lambdas(self.ys_train[mask], train_preds[mask])
 
-        dtr = DecisionTreeRegressor(max_depth=self.max_depth, min_samples_leaf=self.min_samples_leaf)
-        x = self.X_train[objects_ixs].t()[feature_ixs].t()
-        y = lambdas[objects_ixs]
-        dtr.fit(x, y)
+            dtr = DecisionTreeRegressor(max_depth=self.max_depth, min_samples_leaf=self.min_samples_leaf)
+            x = self.X_train[objects_ixs][:, feature_ixs]
+            y = lambdas[objects_ixs]
+            dtr.fit(x, y)
+            # print('----', y.abs().mean())
 
-        return dtr, feature_ixs
+            return dtr, feature_ixs
 
     def _calc_data_ndcg(self, queries_list: np.ndarray,
                         true_labels: torch.FloatTensor, preds: torch.FloatTensor) -> float:
@@ -125,8 +137,8 @@ class Solution:
 
             for query_id in np.unique(self.query_ids_train):
                 mask = self.query_ids_train == query_id
-                cur_preds = dtr.predict(self.X_train[mask].t()[feature_ixs].t())
-                train_preds[mask] += self.lr * torch.Tensor(cur_preds).reshape(-1, 1).float()
+                cur_preds = dtr.predict(self.X_train[mask][:, feature_ixs])
+                train_preds[mask] -= self.lr * torch.Tensor(cur_preds).reshape(-1, 1).float()
 
             # test_preds = torch.zeros(self.X_test.shape[0], 1).float()
             #
@@ -135,7 +147,8 @@ class Solution:
             #     cur_test_preds = self.predict(self.X_test[mask])
             #     test_preds[mask] += self.lr * cur_test_preds
 
-            self.scores.append(self._calc_data_ndcg(self.query_ids_train, self.ys_test, train_preds))
+            cur_score = self._calc_data_ndcg(self.query_ids_train, self.ys_train, train_preds)
+            self.scores.append(cur_score)
             # self.scores.append(self._calc_data_ndcg(self.query_ids_test, self.ys_test, test_preds))
 
         self.trees = self.trees[:1+np.argmax(self.scores)]
@@ -144,9 +157,10 @@ class Solution:
         # допишите ваш код здесь
         preds = torch.zeros(data.shape[0], 1).float()
 
-        for i, dtr in enumerate(self.trees):
-            cur_preds = dtr.predict(data.t()[self.feature_ixs[i]].t())
-            preds += self.lr * torch.Tensor(cur_preds).reshape(-1, 1).float()
+        with torch.no_grad():
+            for i, dtr in enumerate(self.trees):
+                cur_preds = dtr.predict(data[:, self.feature_ixs[i]])
+                preds -= self.lr * torch.Tensor(cur_preds).reshape(-1, 1).float()
 
         return preds
 
@@ -154,6 +168,8 @@ class Solution:
         # допишите ваш код здесь
         # рассчитаем нормировку, IdealDCG
         ideal_dcg = dcg(y_true, y_true, 'exp2', y_true.shape[0])
+        # if not ideal_dcg:
+        #     print(sum(y_true), len(y_true))
         N = 1 / ideal_dcg if ideal_dcg else 0
 
         # рассчитаем порядок документов согласно оценкам релевантности
@@ -183,7 +199,8 @@ class Solution:
     def _ndcg_k(self, ys_true, ys_pred, ndcg_top_k) -> float:
         # допишите ваш код здесь
         ideal = dcg(ys_true, ys_true, 'exp2', ndcg_top_k)
-        return dcg(ys_true, ys_pred, 'exp2', ndcg_top_k) / ideal if ideal else 0
+        cur_dcg = dcg(ys_true, ys_pred, 'exp2', ndcg_top_k)
+        return cur_dcg / ideal if ideal else 0
 
     def save_model(self, path: str):
         # допишите ваш код здесь
@@ -214,7 +231,8 @@ def compute_gain(y_value: float, gain_scheme: str) -> float:
 
 def dcg(ys_true: torch.Tensor, ys_pred: torch.Tensor, gain_scheme: str, ndcg_top_k: int) -> float:
     _, args = torch.sort(ys_pred, descending=True, dim=0)
-    return sum(map(lambda p: compute_gain(p[1].item(), gain_scheme) / np.log2(p[0]), enumerate(ys_true[args[:ndcg_top_k]], 2)))
+    s_true = ys_true[args[:ndcg_top_k]]
+    return sum(map(lambda p: compute_gain(p[1].item(), gain_scheme) / np.log2(p[0]), enumerate(s_true, 2)))
 
 
 def compute_labels_in_batch(y_true):
@@ -240,11 +258,10 @@ def compute_gain_diff(y_true, gain_scheme):
     return gain_diff
 
 
-s = Solution(n_estimators=30)
+s = Solution(n_estimators=20)
 
-ts = time.time()
+# ts = time.time()
 s.fit()
-print((time.time() - ts)*1000)
+# print((time.time() - ts)*1000)
 
-for score in s.scores:
-    print(score)
+print(s.scores)
