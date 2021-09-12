@@ -13,7 +13,7 @@ import time
 
 
 class Solution:
-    def __init__(self, n_estimators: int = 100, lr: float = 0.1, ndcg_top_k: int = 10,
+    def __init__(self, n_estimators: int = 100, lr: float = 0.5, ndcg_top_k: int = 10,
                  subsample: float = 0.6, colsample_bytree: float = 0.9,
                  max_depth: int = 5, min_samples_leaf: int = 8):
         self._prepare_data()
@@ -49,16 +49,17 @@ class Solution:
             X_test, y_test, self.query_ids_test) = self._get_data()
         # допишите ваш код здесь
         self.X_train, self.X_test, self.ys_train, self.ys_test = map(torch.FloatTensor, [
+        # self.X_test, self.X_train, self.ys_test, self.ys_train = map(torch.FloatTensor, [
             self._scale_features_in_query_groups(X_train, self.query_ids_train),
             self._scale_features_in_query_groups(X_test, self.query_ids_train),
             y_train.reshape(-1, 1),
             y_test.reshape(-1, 1)
         ])
 
-        n = 86
-        self.query_ids_train = self.query_ids_train[:n]
-        self.X_train = self.X_train[:n]
-        self.ys_train = self.ys_train[:n]
+        # n = 86
+        # self.query_ids_train = self.query_ids_train[:n]
+        # self.X_train = self.X_train[:n]
+        # self.ys_train = self.ys_train[:n]
 
     def _scale_features_in_query_groups(self, inp_feat_array: np.ndarray,
                                         inp_query_ids: np.ndarray) -> np.ndarray:
@@ -129,6 +130,7 @@ class Solution:
         np.random.seed(0)
         # допишите ваш код здесь
         train_preds = torch.zeros(self.X_train.shape[0], 1).float()
+        test_preds = torch.zeros(self.X_test.shape[0], 1).float()
 
         for i in range(self.n_estimators):
             dtr, feature_ixs = self._train_one_tree(i, train_preds)
@@ -140,16 +142,15 @@ class Solution:
                 cur_preds = dtr.predict(self.X_train[mask][:, feature_ixs])
                 train_preds[mask] -= self.lr * torch.Tensor(cur_preds).reshape(-1, 1).float()
 
-            # test_preds = torch.zeros(self.X_test.shape[0], 1).float()
-            #
-            # for query_id in np.unique(self.query_ids_test):
-            #     mask = self.query_ids_test == query_id
-            #     cur_test_preds = self.predict(self.X_test[mask])
-            #     test_preds[mask] += self.lr * cur_test_preds
+            for query_id in np.unique(self.query_ids_test):
+                mask = self.query_ids_test == query_id
+                cur_test_preds = dtr.predict(self.X_test[mask][:, feature_ixs])
+                test_preds[mask] -= self.lr * torch.Tensor(cur_test_preds).reshape(-1, 1).float()
 
-            cur_score = self._calc_data_ndcg(self.query_ids_train, self.ys_train, train_preds)
-            self.scores.append(cur_score)
-            # self.scores.append(self._calc_data_ndcg(self.query_ids_test, self.ys_test, test_preds))
+            # cur_score = self._calc_data_ndcg(self.query_ids_train, self.ys_train, train_preds)
+            test_score = self._calc_data_ndcg(self.query_ids_test, self.ys_test, test_preds)
+            self.scores.append(test_score)
+            # self.scores.append((cur_score, test_score))
 
         self.trees = self.trees[:1+np.argmax(self.scores)]
 
@@ -258,10 +259,32 @@ def compute_gain_diff(y_true, gain_scheme):
     return gain_diff
 
 
-s = Solution(n_estimators=20)
+def validate(s):
+    test_preds = torch.zeros(s.X_test.shape[0], 1).float()
+    for query_id in np.unique(s.query_ids_test):
+        mask = s.query_ids_test == query_id
+        test_preds[mask] = s.predict(s.X_test[mask])
+
+    test_score = s._calc_data_ndcg(s.query_ids_test, s.ys_test, test_preds)
+    print(test_score)
+
+
+s = Solution(
+    lr=0.1,
+    # colsample_bytree=0.5,
+    # n_estimators=100
+)
 
 # ts = time.time()
 s.fit()
-# print((time.time() - ts)*1000)
+# print((time.time() - ts))
 
-print(s.scores)
+# for i in range(len(s.trees)):
+#     print(s.scores[i])
+
+# print(max(s.scores))
+
+# s.save_model('model')
+# s2 = Solution()
+# s2.load_model('model.lmart')
+# validate(s2)
