@@ -13,7 +13,7 @@ import time
 
 
 class Solution:
-    def __init__(self, n_estimators: int = 100, lr: float = 0.5, ndcg_top_k: int = 10,
+    def __init__(self, n_estimators: int = 100, lr: float = 0.1, ndcg_top_k: int = 10,
                  subsample: float = 0.6, colsample_bytree: float = 0.9,
                  max_depth: int = 5, min_samples_leaf: int = 8):
         self._prepare_data()
@@ -30,6 +30,8 @@ class Solution:
         self.trees = []
         self.feature_ixs = []
         self.scores = []
+        self.ps = []
+        self.best_ndcg = 0
 
     def _get_data(self) -> List[np.ndarray]:
         train_df, test_df = msrank_10k()
@@ -95,6 +97,7 @@ class Solution:
             objects_ixs = np.random.choice(range(self.X_train.shape[0]), int(np.floor(self.subsample * self.X_train.shape[0])), replace=False)
 
             lambdas = torch.zeros(self.ys_train.shape[0], 1)
+
             # yp = torch.zeros(self.ys_train.shape[0], 1).float()
             # for _ in range(10):
             #     lambda_update = self._compute_lambdas(self.ys_train, yp)
@@ -109,7 +112,7 @@ class Solution:
             x = self.X_train[objects_ixs][:, feature_ixs]
             y = lambdas[objects_ixs]
             dtr.fit(x, y)
-            # print('----', y.abs().mean())
+            # print(lambdas.abs().mean())
 
             return dtr, feature_ixs
 
@@ -131,28 +134,42 @@ class Solution:
         # допишите ваш код здесь
         train_preds = torch.zeros(self.X_train.shape[0], 1).float()
         test_preds = torch.zeros(self.X_test.shape[0], 1).float()
+        self.scores = []
+        self.ps = []
+        self.trees = []
+        self.feature_ixs = []
 
         for i in range(self.n_estimators):
+            d_train = torch.zeros(self.X_train.shape[0], 1).float()
+            d_test = torch.zeros(self.X_test.shape[0], 1).float()
+
             dtr, feature_ixs = self._train_one_tree(i, train_preds)
-            self.trees.append(dtr)
-            self.feature_ixs.append(feature_ixs)
+
+            k = 0
 
             for query_id in np.unique(self.query_ids_train):
                 mask = self.query_ids_train == query_id
                 cur_preds = dtr.predict(self.X_train[mask][:, feature_ixs])
-                train_preds[mask] -= self.lr * torch.Tensor(cur_preds).reshape(-1, 1).float()
+                d_train[mask] -= (self.lr - i*k) * torch.Tensor(cur_preds).reshape(-1, 1).float()
 
             for query_id in np.unique(self.query_ids_test):
                 mask = self.query_ids_test == query_id
                 cur_test_preds = dtr.predict(self.X_test[mask][:, feature_ixs])
-                test_preds[mask] -= self.lr * torch.Tensor(cur_test_preds).reshape(-1, 1).float()
+                d_test[mask] -= (self.lr - i*k) * torch.Tensor(cur_test_preds).reshape(-1, 1).float()
 
-            # cur_score = self._calc_data_ndcg(self.query_ids_train, self.ys_train, train_preds)
-            test_score = self._calc_data_ndcg(self.query_ids_test, self.ys_test, test_preds)
-            self.scores.append(test_score)
-            # self.scores.append((cur_score, test_score))
+            cur_score = self._calc_data_ndcg(self.query_ids_train, self.ys_train, train_preds + d_train)
+            test_score = self._calc_data_ndcg(self.query_ids_test, self.ys_test, test_preds + d_test)
 
-        self.trees = self.trees[:1+np.argmax(self.scores)]
+            if i == 0 or test_score > self.scores[-1]:
+                train_preds += d_train
+                test_preds += d_test
+                self.scores.append(test_score)
+                self.ps.append(cur_score)
+                self.trees.append(dtr)
+                self.feature_ixs.append(feature_ixs)
+
+        # self.trees = self.trees[:1+np.argmax(self.scores)]
+        self.best_ndcg = max(self.scores)
 
     def predict(self, data: torch.FloatTensor) -> torch.FloatTensor:
         # допишите ваш код здесь
@@ -209,6 +226,7 @@ class Solution:
             'trees': self.trees,
             'feature_ixs': self.feature_ixs,
             'lr': self.lr,
+            'best_ndcg': self.best_ndcg
         }
         pickle.dump(model, open('%s.lmart' % (path), "wb"), protocol=2)
 
@@ -218,6 +236,7 @@ class Solution:
         self.trees = model['trees']
         self.feature_ixs = model['feature_ixs']
         self.lr = model['lr']
+        self.best_ndcg = model['best_ndcg']
 
 
 def compute_gain(y_value: float, gain_scheme: str) -> float:
@@ -269,22 +288,24 @@ def validate(s):
     print(test_score)
 
 
-s = Solution(
-    lr=0.1,
-    # colsample_bytree=0.5,
-    # n_estimators=100
-)
+# s = Solution(
+#     lr=0.1,
+#     n_estimators=200
+# )
 
 # ts = time.time()
-s.fit()
+# s.fit()
 # print((time.time() - ts))
 
 # for i in range(len(s.trees)):
 #     print(s.scores[i])
 
-# print(max(s.scores))
-
-# s.save_model('model')
+# print('-------------')
+# print(s.scores)
+# print('-------------')
+# print(s.ps)
+# if s.best_ndcg >= 0.431:
+#     s.save_model('model')
 # s2 = Solution()
 # s2.load_model('model.lmart')
 # validate(s2)
