@@ -24,7 +24,7 @@ class GaussianKernel(torch.nn.Module):
 
     def forward(self, x):
         # допишите ваш код здесь 
-        x.add(-self.mu).pow(2.0).div(2.0 * self.sigma * self.sigma).neg().exp().sum(dim=1)
+        return x.add(-self.mu).pow(2.0).div(2.0 * self.sigma * self.sigma).neg().exp()
 
 
 class KNRM(torch.nn.Module):
@@ -89,14 +89,11 @@ class KNRM(torch.nn.Module):
         return out
 
     def _get_matching_matrix(self, query: torch.Tensor, doc: torch.Tensor) -> torch.FloatTensor:
-        # допишите ваш код здесь 
-        return F\
-            .cosine_similarity(
-                query.repeat_interleave(doc.shape[1], dim=1),
-                doc.repeat(1, query.shape[1], 1),
-                dim=2
-            )\
-            .reshape(query.shape[0], query.shape[1], doc.shape[1])
+        # допишите ваш код здесь
+        q = query.repeat_interleave(doc.shape[1], dim=1)
+        d = doc.repeat(1, query.shape[1], 1)
+
+        return F.cosine_similarity(q, d, dim=2).reshape(query.shape[0], query.shape[1], doc.shape[1])
 
     def _apply_kernels(self, matching_matrix: torch.FloatTensor) -> torch.FloatTensor:
         KM = []
@@ -112,9 +109,13 @@ class KNRM(torch.nn.Module):
     def predict(self, inputs: Dict[str, torch.Tensor]) -> torch.FloatTensor:
         # shape = [Batch, Left, Embedding], [Batch, Right, Embedding]
         query, doc = inputs['query'], inputs['document']
+        # self.embeddings
         
         # shape = [Batch, Left, Right]
-        matching_matrix = self._get_matching_matrix(query, doc)
+        matching_matrix = self._get_matching_matrix(
+            self.embeddings(query),
+            self.embeddings(doc)
+        )
         # shape = [Batch, Kernels]
         kernels_out = self._apply_kernels(matching_matrix)
         # shape = [Batch]
@@ -500,6 +501,7 @@ def compute_gain(y_value: float, gain_scheme: str) -> float:
         return pow(2.0, y_value) - 1.0
 
     raise ValueError('incorrect gain_scheme')
+
 
 def dcg(ys_true, ys_pred, gain_scheme: str, ndcg_top_k: int) -> float:
     args = np.argsort(ys_pred)[-1:-(ndcg_top_k+1):-1]
