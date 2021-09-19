@@ -282,21 +282,43 @@ class Solution:
             texts.append(df['text_right'].unique())
 
         questions = np.unique(np.concatenate(texts))
-        # t = datetime.now()
+
         tokens = self.simple_preproc('\n'.join(questions))
-        # print(datetime.now() - t)
+
         result = list(self._filter_rare_words(Counter(tokens), min_occurancies).keys())
         return result
 
     def _read_glove_embeddings(self, file_path: str) -> Dict[str, List[str]]:
-        # допишите ваш код здесь 
-        pass
+        # допишите ваш код здесь
+        # t = datetime.now()
+        with open(file_path, 'r') as f:
+            result = {line[0]: line[1:] for line in map(lambda x: x.split(' '), f.read().splitlines())}
+            # print(datetime.now() - t)
+            return result
 
     def create_glove_emb_from_file(self, file_path: str, inner_keys: List[str],
                                    random_seed: int, rand_uni_bound: float
                                    ) -> Tuple[np.ndarray, Dict[str, int], List[str]]:
-        # допишите ваш код здесь 
-        pass
+        # допишите ваш код здесь
+        # t = datetime.now()
+        d = 50
+        unk_words = ['PAD', 'OOV']
+        vocab = {'PAD': 0, 'OOV': 1}
+        matrix = [[0.0] * d, [1.0] * d]
+        embs = self._read_glove_embeddings(file_path)
+        np.random.seed(random_seed)
+
+        for i, token in enumerate(inner_keys, 2):
+            emb = embs.get(token)
+
+            if emb is None:
+                unk_words.append(token)
+                emb = np.random.uniform(0, rand_uni_bound, d)
+
+            matrix.append(emb)
+            vocab[token] = i
+        # print(datetime.now() - t)
+        return np.array(matrix).astype(float), vocab, unk_words
 
     def build_knrm_model(self) -> Tuple[torch.nn.Module, Dict[str, int], List[str]]:
         emb_matrix, vocab, unk_words = self.create_glove_emb_from_file(
