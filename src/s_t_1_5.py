@@ -9,8 +9,6 @@ import pandas as pd
 import torch
 import torch.nn.functional as F
 
-# from datetime import datetime
-
 
 # Замените пути до директорий и файлов! Можете использовать для локальной отладки. 
 # При проверке на сервере пути будут изменены
@@ -55,12 +53,13 @@ class KNRM(torch.nn.Module):
         kernels = torch.nn.ModuleList()
         # допишите ваш код здесь 
         for i in range(self.kernel_num - 1):
+            cur_mu = (2 * (i + 1) - self.kernel_num) / (self.kernel_num - 1)
             kernels.append(GaussianKernel(
-                mu=(2 * (i + 1) - self.kernel_num) / (self.kernel_num - 1),
-                sigma=self.exact_sigma
+                mu=cur_mu,
+                sigma=self.sigma
             ))
 
-        kernels.append(GaussianKernel(mu=1.0, sigma=self.exact_sigma))
+        kernels.append(GaussianKernel(sigma=self.exact_sigma))
 
         return kernels
 
@@ -95,10 +94,14 @@ class KNRM(torch.nn.Module):
         q = self.embeddings(query)
         d = self.embeddings(doc).transpose(1, 2)
 
-        return torch\
+        result = torch\
             .matmul(q, d)\
             .div(torch.linalg.norm(q, dim=2).unsqueeze(2))\
             .div(torch.linalg.norm(d, dim=1).unsqueeze(1))
+
+        result[result.isnan()] = 0.0
+
+        return result
 
     def _apply_kernels(self, matching_matrix: torch.FloatTensor) -> torch.FloatTensor:
         KM = []
@@ -153,7 +156,19 @@ class RankingDataset(torch.utils.data.Dataset):
 class TrainTripletsDataset(RankingDataset):
     def __getitem__(self, idx):
         # допишите ваш код здесь 
-        pass
+        triplet = self.index_pairs_or_triplets[idx]
+        query = self._convert_text_idx_to_token_idxs(int(triplet[0]))
+        return [
+            {
+                'query': query,
+                'document': self._convert_text_idx_to_token_idxs(int(triplet[1]))
+            },
+            {
+                'query': query,
+                'document': self._convert_text_idx_to_token_idxs(int(triplet[2]))
+            },
+            triplet[3]
+        ]
 
 
 class ValPairsDataset(RankingDataset):
@@ -361,7 +376,25 @@ class Solution:
     def sample_data_for_train_iter(self, inp_df: pd.DataFrame, seed: int
                                    ) -> List[List[Union[str, float]]]:
         # допишите ваш код здесь 
-        pass
+        inp_df_select = inp_df[['id_left', 'id_right', 'label']]
+        inf_df_group_sizes = inp_df_select.groupby('id_left').size()
+        glue_dev_leftids_to_use = list(inf_df_group_sizes[inf_df_group_sizes >= 2].index)
+        groups = inp_df_select[inp_df_select.id_left.isin(glue_dev_leftids_to_use)].groupby('id_left')
+
+        out_pairs = []
+
+        np.random.seed(seed)
+
+        for id_left, group in groups:
+            ones_zeros = zip(
+                group[group.label > 0].id_right.values,
+                group[group.label == 0].id_right.values
+            )
+
+            for id_1, id_2 in ones_zeros:
+                out_pairs.append([id_left, id_1, id_2, 1.0] if np.random.rand() > 0.5 else [id_left, id_2, id_1, 0.0])
+
+        return out_pairs
 
     def create_val_pairs(self, inp_df: pd.DataFrame, fill_top_to: int = 15,
                          min_group_size: int = 2, seed: int = 0) -> List[List[Union[str, float]]]:
@@ -451,7 +484,25 @@ class Solution:
         opt = torch.optim.SGD(self.model.parameters(), lr=self.train_lr)
         criterion = torch.nn.BCELoss()
         # допишите ваш код здесь 
-        pass
+        triplets = self.sample_data_for_train_iter(self.glue_train_df, self.random_seed)
+        train_dataset = TrainTripletsDataset(triplets,
+                                             self.idx_to_text_mapping_train,
+                                             vocab=self.vocab, oov_val=self.vocab['OOV'],
+                                             preproc_func=self.simple_preproc)
+        train_dataloader = torch.utils.data.DataLoader(
+            train_dataset, batch_size=self.dataloader_bs, num_workers=0,
+            collate_fn=collate_fn, shuffle=False)
+
+        for _ in range(n_epochs):
+            self.model.train()
+            for batch in (train_dataloader):
+                inp_1, inp_2, y = batch
+                opt.zero_grad()
+                batch_out = self.model.forward(inp_1, inp_2)
+                batch_loss = criterion(batch_out, y)
+                batch_loss.backward(retain_graph=True)
+                opt.step()
+            # print(self.valid(self.model, self.val_dataloader))
 
 
 def compute_gain(y_value: float, gain_scheme: str) -> float:
