@@ -26,7 +26,7 @@ class GaussianKernel(torch.nn.Module):
 
     def forward(self, x):
         # допишите ваш код здесь 
-        pass
+        return x.add(-self.mu).pow(2.0).div(2.0 * self.sigma * self.sigma).neg().exp()
 
 
 class KNRM(torch.nn.Module):
@@ -54,11 +54,32 @@ class KNRM(torch.nn.Module):
     def _get_kernels_layers(self) -> torch.nn.ModuleList:
         kernels = torch.nn.ModuleList()
         # допишите ваш код здесь 
+        for i in range(self.kernel_num - 1):
+            kernels.append(GaussianKernel(
+                mu=(2 * (i + 1) - self.kernel_num) / (self.kernel_num - 1),
+                sigma=self.exact_sigma
+            ))
+
+        kernels.append(GaussianKernel(mu=1.0, sigma=self.exact_sigma))
+
         return kernels
 
     def _get_mlp(self) -> torch.nn.Sequential:
-       # допишите ваш код здесь 
-       pass
+        # допишите ваш код здесь
+        if not self.out_layers:
+            return torch.nn.Sequential(torch.nn.Linear(self.kernel_num, 1))
+
+        layers = [torch.nn.Linear(self.kernel_num, self.kernel_num), torch.nn.ReLU()]
+        k_in = self.kernel_num
+
+        for k_out in self.out_layers:
+            layers.append(torch.nn.Linear(k_in, k_out))
+            layers.append(torch.nn.ReLU())
+            k_in = k_out
+
+        layers.append(torch.nn.Linear(k_in, 1))
+
+        return torch.nn.Sequential(*layers)
 
     def forward(self, input_1: Dict[str, torch.Tensor], input_2: Dict[str, torch.Tensor]) -> torch.FloatTensor:
         logits_1 = self.predict(input_1)
@@ -70,8 +91,14 @@ class KNRM(torch.nn.Module):
         return out
 
     def _get_matching_matrix(self, query: torch.Tensor, doc: torch.Tensor) -> torch.FloatTensor:
-        # допишите ваш код здесь 
-        pass
+        # допишите ваш код здесь
+        q = self.embeddings(query)
+        d = self.embeddings(doc).transpose(1, 2)
+
+        return torch\
+            .matmul(q, d)\
+            .div(torch.linalg.norm(q, dim=2).unsqueeze(2))\
+            .div(torch.linalg.norm(d, dim=1).unsqueeze(1))
 
     def _apply_kernels(self, matching_matrix: torch.FloatTensor) -> torch.FloatTensor:
         KM = []
@@ -113,11 +140,11 @@ class RankingDataset(torch.utils.data.Dataset):
 
     def _tokenized_text_to_index(self, tokenized_text: List[str]) -> List[int]:
         # допишите ваш код здесь 
-        pass
+        return [self.vocab.get(t, self.oov_val) for t in tokenized_text]
 
     def _convert_text_idx_to_token_idxs(self, idx: int) -> List[int]:
         # допишите ваш код здесь 
-        pass
+        return self._tokenized_text_to_index(self.preproc_func(self.idx_to_text_mapping[str(idx)]))
 
     def __getitem__(self, idx: int):
         pass
@@ -132,7 +159,14 @@ class TrainTripletsDataset(RankingDataset):
 class ValPairsDataset(RankingDataset):
     def __getitem__(self, idx):
         # допишите ваш код здесь 
-        pass
+        pair = self.index_pairs_or_triplets[idx]
+        return [
+            {
+                'query': self._convert_text_idx_to_token_idxs(int(pair[0])),
+                'document': self._convert_text_idx_to_token_idxs(int(pair[1]))
+            },
+            pair[2]
+        ]
 
 
 def collate_fn(batch_objs: List[Union[Dict[str, torch.Tensor], torch.FloatTensor]]):
@@ -290,17 +324,14 @@ class Solution:
 
     def _read_glove_embeddings(self, file_path: str) -> Dict[str, List[str]]:
         # допишите ваш код здесь
-        # t = datetime.now()
         with open(file_path, 'r') as f:
             result = {line[0]: line[1:] for line in map(lambda x: x.split(' '), f.read().splitlines())}
-            # print(datetime.now() - t)
             return result
 
     def create_glove_emb_from_file(self, file_path: str, inner_keys: List[str],
                                    random_seed: int, rand_uni_bound: float
                                    ) -> Tuple[np.ndarray, Dict[str, int], List[str]]:
         # допишите ваш код здесь
-        # t = datetime.now()
         d = 50
         unk_words = ['PAD', 'OOV']
         vocab = {'PAD': 0, 'OOV': 1}
@@ -317,7 +348,6 @@ class Solution:
 
             matrix.append(emb)
             vocab[token] = i
-        # print(datetime.now() - t)
         return np.array(matrix).astype(float), vocab, unk_words
 
     def build_knrm_model(self) -> Tuple[torch.nn.Module, Dict[str, int], List[str]]:
@@ -390,7 +420,9 @@ class Solution:
 
     def ndcg_k(self, ys_true: np.array, ys_pred: np.array, ndcg_top_k: int = 10) -> float:
         # допишите ваш код здесь  (обратите внимание, что используются вектора numpy)
-        pass
+        ideal = dcg(ys_true, ys_true, 'exp2', ndcg_top_k)
+        cur_dcg = dcg(ys_true, ys_pred, 'exp2', ndcg_top_k)
+        return cur_dcg / ideal if ideal else 0
 
     def valid(self, model: torch.nn.Module, val_dataloader: torch.utils.data.DataLoader) -> float:
         labels_and_groups = val_dataloader.dataset.index_pairs_or_triplets
@@ -420,3 +452,19 @@ class Solution:
         criterion = torch.nn.BCELoss()
         # допишите ваш код здесь 
         pass
+
+
+def compute_gain(y_value: float, gain_scheme: str) -> float:
+    if gain_scheme == 'const':
+        return y_value
+
+    if gain_scheme == 'exp2':
+        return pow(2.0, y_value) - 1.0
+
+    raise ValueError('incorrect gain_scheme')
+
+
+def dcg(ys_true, ys_pred, gain_scheme: str, ndcg_top_k: int) -> float:
+    args = np.argsort(ys_pred)[-1:-(ndcg_top_k+1):-1]
+    s_true = np.take(ys_true, args)
+    return sum(map(lambda p: compute_gain(p[1], gain_scheme) / np.log2(p[0]), enumerate(s_true, 2)))
