@@ -21,7 +21,16 @@ def create_sw_graph(
         dist_f: Callable = distance
     ) -> Dict[int, List[int]]:
     # допишите ваш код здесь 
-    pass
+    d = {}
+
+    for i, p in enumerate(data):
+        ds = dist_f(p, data).flatten()
+        short_candidates = np.argpartition(ds, 1+num_candidates_for_choice_short)[:1+num_candidates_for_choice_short]
+        short_candidates = short_candidates[short_candidates != i]
+        long_candidates = np.argpartition(ds, -num_candidates_for_choice_long)[-num_candidates_for_choice_long:]
+        d[i] = np.random.choice(long_candidates, num_edges_long, replace=False).tolist() + np.random.choice(short_candidates, num_edges_short, replace=False).tolist()
+
+    return d
 
 def nsw(query_point: np.ndarray, all_documents: np.ndarray, 
         graph_edges: Dict[int, List[int]],
