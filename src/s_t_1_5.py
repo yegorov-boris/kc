@@ -368,6 +368,7 @@ class Solution:
     def build_knrm_model(self) -> Tuple[torch.nn.Module, Dict[str, int], List[str]]:
         emb_matrix, vocab, unk_words = self.create_glove_emb_from_file(
             self.glove_vectors_path, self.all_tokens, self.random_seed, self.emb_rand_uni_bound)
+        self.emb_matrix = emb_matrix
         torch.manual_seed(self.random_seed)
         knrm = KNRM(emb_matrix, freeze_embeddings=self.freeze_knrm_embeddings,
                     out_layers=self.knrm_out_mlp, kernel_num=self.knrm_kernel_num)
@@ -382,18 +383,31 @@ class Solution:
         groups = inp_df_select[inp_df_select.id_left.isin(glue_dev_leftids_to_use)].groupby('id_left')
 
         out_pairs = []
-
-        np.random.seed(seed)
+        all_docs = inp_df_select['id_right'].values
 
         for id_left, group in groups:
-            ones_zeros = zip(
-                group[group.label > 0].id_right.values,
-                group[group.label == 0].id_right.values
-            )
+            if np.random.rand() > 0.005:
+                continue
 
-            for id_1, id_2 in ones_zeros:
-                out_pairs.append([id_left, id_1, id_2, 1.0] if np.random.rand() > 0.5 else [id_left, id_2, id_1, 0.0])
+            docs = group.id_right.values
+            labels = group.label.values
+            ones = docs[labels == 1.0]
+            zeros = docs[labels == 0.0]
 
+            for a in ones:
+                for b in zeros:
+                    out_pairs.append([id_left, a, b, 1.0])
+
+            pad = 15 - len(group)
+
+            if pad < 1:
+                continue
+
+            for a in docs:
+                for b in np.random.choice(all_docs, pad):
+                    out_pairs.append([id_left, a, b, 1.0])
+
+        # print(len(out_pairs))
         return out_pairs
 
     def create_val_pairs(self, inp_df: pd.DataFrame, fill_top_to: int = 15,
@@ -483,19 +497,22 @@ class Solution:
     def train(self, n_epochs: int):
         opt = torch.optim.SGD(self.model.parameters(), lr=self.train_lr)
         criterion = torch.nn.BCELoss()
-        # допишите ваш код здесь 
-        triplets = self.sample_data_for_train_iter(self.glue_train_df, self.random_seed)
-        train_dataset = TrainTripletsDataset(triplets,
-                                             self.idx_to_text_mapping_train,
-                                             vocab=self.vocab, oov_val=self.vocab['OOV'],
-                                             preproc_func=self.simple_preproc)
-        train_dataloader = torch.utils.data.DataLoader(
-            train_dataset, batch_size=self.dataloader_bs, num_workers=0,
-            collate_fn=collate_fn, shuffle=False)
+        # допишите ваш код здесь
+        self.model.sigma = 0.001
+        self.model.kernels = self.model._get_kernels_layers()
+        for i in range(n_epochs):
+            if i % 4 == 0:
+                triplets = self.sample_data_for_train_iter(self.glue_train_df, 42)
+                train_dataset = TrainTripletsDataset(triplets,
+                                                     self.idx_to_text_mapping_train,
+                                                     vocab=self.vocab, oov_val=self.vocab['OOV'],
+                                                     preproc_func=self.simple_preproc)
+                train_dataloader = torch.utils.data.DataLoader(
+                    train_dataset, batch_size=self.dataloader_bs, num_workers=0,
+                    collate_fn=collate_fn, shuffle=False)
 
-        for _ in range(n_epochs):
             self.model.train()
-            for batch in (train_dataloader):
+            for batch in train_dataloader:
                 inp_1, inp_2, y = batch
                 opt.zero_grad()
                 batch_out = self.model.forward(inp_1, inp_2)
