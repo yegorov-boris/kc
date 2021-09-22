@@ -9,6 +9,7 @@ import pandas as pd
 import torch
 import torch.nn.functional as F
 
+# from datetime import datetime, timedelta
 
 # Замените пути до директорий и файлов! Можете использовать для локальной отладки. 
 # При проверке на сервере пути будут изменены
@@ -500,8 +501,10 @@ class Solution:
         # допишите ваш код здесь
         self.model.sigma = 0.001
         self.model.kernels = self.model._get_kernels_layers()
-        for i in range(n_epochs):
+        # total_time = timedelta(0)
+        for i in range(min(n_epochs, 10)):
             if i % 4 == 0:
+                # t = datetime.now()
                 triplets = self.sample_data_for_train_iter(self.glue_train_df, 42)
                 train_dataset = TrainTripletsDataset(triplets,
                                                      self.idx_to_text_mapping_train,
@@ -511,6 +514,10 @@ class Solution:
                     train_dataset, batch_size=self.dataloader_bs, num_workers=0,
                     collate_fn=collate_fn, shuffle=False)
 
+                # total_time += datetime.now() - t
+                # print('triplets ', total_time)
+
+            # t = datetime.now()
             self.model.train()
             for batch in train_dataloader:
                 inp_1, inp_2, y = batch
@@ -519,7 +526,12 @@ class Solution:
                 batch_loss = criterion(batch_out, y)
                 batch_loss.backward(retain_graph=True)
                 opt.step()
-            # print(self.valid(self.model, self.val_dataloader))
+
+            # total_time += datetime.now() - t
+            # print('epoch ', total_time)
+            # print(i, self.valid(self.model, self.val_dataloader))
+
+        # print('total_time ', total_time)
 
 
 def compute_gain(y_value: float, gain_scheme: str) -> float:
