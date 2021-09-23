@@ -25,12 +25,11 @@ t = datetime.now()
 # for n, d in tmp:
 #     pq.push(n, d)
 # result = nsw(query, data, fake_graph_edges)
-result = nsw(query, data, graph_edges, search_k=5, num_start_points=20)
-print(datetime.now() - t)
+result = nsw(query, data, graph_edges, search_k=5)
+print((datetime.now() - t).microseconds)
 
-print(
-    result,
-    distance(query, data[result]).flatten(),
-    graph_edges[i][5:],
-    distance(query, data[graph_edges[i][5:]]).flatten()
-)
+print(result)
+print(graph_edges[i][5:])
+print(set(result) & set(graph_edges[i][5:]))
+print(sorted(distance(query, data[result]).flatten()))
+print(sorted(distance(query, data[graph_edges[i][5:]]).flatten()))

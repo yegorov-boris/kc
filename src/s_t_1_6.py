@@ -4,8 +4,6 @@ from typing import Callable, Tuple, Dict, List
 import numpy as np
 from tqdm.auto import tqdm
 
-# from datetime import datetime, timedelta
-
 
 def distance(pointA: np.ndarray, documents: np.ndarray) -> np.ndarray:
     # допишите ваш код здесь 
@@ -63,32 +61,57 @@ def nsw(query_point: np.ndarray, all_documents: np.ndarray,
         dist_f: Callable = distance) -> np.ndarray:
     # допишите ваш код здесь 
     pq = PQ(search_k)
-    # total = [timedelta(0)]
+    roots = set()
+    visited = set()
 
-    def search(cur_point, cur_dist):
-        # pq.push(cur_point, cur_dist)
-        neighbors = graph_edges[cur_point]
+    def search(cur_point, cur_dist, epoch=1):
+        roots.add(cur_point)
+        print(cur_point)
+        neighbors = list(set(graph_edges[cur_point]) - visited)
+
+        if not len(neighbors):
+            return
+            # if epoch == 50:
+            #     return
+            #
+            # s = np.random.randint(0, len(all_documents) - 1)
+            # s_d = dist_f(query_point, all_documents[start:start + 1])[0][0]
+            # return search(s, s_d, epoch + 1)
+
         dd = all_documents[neighbors]
-        # tmp = datetime.now()
         neighbor_dists = dist_f(query_point, dd)
-        # print(neighbor_dists.flatten().round())
-        # print(neighbors)
-        # total[0] += datetime.now() - tmp
+
+        for i, d in enumerate(neighbor_dists):
+            n = neighbors[i]
+            pq.push(n, d[0])
+            visited.add(n)
+
         i_min = neighbor_dists.argmin(axis=0)[0]
         d_min = neighbor_dists[i_min][0]
 
         if d_min < cur_dist:
-            search(neighbors[i_min], d_min)
-        else:
-            print('end', cur_point)
-            for i, d in enumerate(neighbor_dists):
-                pq.push(neighbors[i], d[0])
+            return search(neighbors[i_min], d_min, epoch)
 
-    # for start in np.random.randint(0, len(all_documents) - 1, 1):
-    for start in np.random.randint(0, len(all_documents) - 1, num_start_points):
-        start_dist = dist_f(query_point, all_documents[start:start + 1])[0]
-        print('start', start)
+        # if epoch == 50:
+        #     return
+        #
+        # for i, n in enumerate(pq.result[1:], 1):
+        #     if n not in roots:
+        #         return search(n, pq.pq[i], epoch+1)
+        #
+        # s = np.random.randint(0, len(all_documents) - 1)
+        # s_d = dist_f(query_point, all_documents[start:start + 1])[0][0]
+        # return search(s, s_d, epoch+1)
+
+    for _ in range(num_start_points):
+        print('------')
+        start = np.random.randint(0, len(all_documents) - 1)
+        start_dist = dist_f(query_point, all_documents[start:start+1])[0][0]
         search(start, start_dist)
 
-    # print(total[0])
+        for i, n in enumerate(pq.result):
+            if n not in roots:
+                print('=====')
+                search(n, pq.pq[i])
+
     return np.array(pq.result)
