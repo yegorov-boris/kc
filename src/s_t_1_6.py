@@ -37,5 +37,39 @@ def nsw(query_point: np.ndarray, all_documents: np.ndarray,
         search_k: int = 10, num_start_points: int = 5,
         dist_f: Callable = distance) -> np.ndarray:
     # допишите ваш код здесь 
-    pass
+    class PQ():
+        pq = [-1] * search_k
+        result = [-1] * search_k
+        p = 0
+        
+        def push(self, n, d):
+            if self.p != search_k:
+                self.pq[self.p] = d
+                self.result[self.p] = n
+                self.p = self.p + 1
+                return 
+            
+            if n not in self.result:
+                for i, v in enumerate(self.pq):
+                    if d < v or v == -1:
+                        self.pq[i] = d
+                        self.result[i] = n
+                        break
+                        
+    pq = PQ()
 
+    def search(cur_point, cur_dist):
+        pq.push(cur_point, cur_dist)
+        neighbors = graph_edges[cur_point]
+        neighbor_dists = dist_f(query_point, all_documents[neighbors]).flatten()
+        i_min = neighbor_dists.argmin()
+        d_min = neighbor_dists[i_min]
+
+        if d_min < cur_dist:
+            search(neighbors[i_min], d_min)
+
+    for start in np.random.choice(list(graph_edges.keys()), num_start_points, replace=False):
+        start_dist = dist_f(query_point, all_documents[start:start + 1])[0]
+        search(start, start_dist)
+
+    return np.array(pq.result)

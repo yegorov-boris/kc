@@ -1,8 +1,17 @@
 import numpy as np
-from s_t_1_6 import create_sw_graph, distance
+from datetime import datetime
+from s_t_1_6 import create_sw_graph, nsw
 
-data = np.array([[1, 9], [2, 3], [4, 1], [3, 7], [5, 4]])#, [6, 8], [7, 2], [8, 8], [7, 9], [9, 6]])
+# data = np.array([[1, 9], [2, 3], [4, 1], [3, 7], [5, 4]])
+# graph_edges = create_sw_graph(data, 2, 2, 2, 2)
+# query = np.array([[1.5, 2.5]])
+# result = nsw(query, data, graph_edges, 2, 2)
 
-print(create_sw_graph(data, 2, 2, 2, 2))
+data = np.random.rand(10000, 100)
+graph_edges = create_sw_graph(data)
+query = np.random.rand(1, 100)
+t = datetime.now()
+result = nsw(query, data, graph_edges)
+print(datetime.now() - t)
 
-# print(distance(data[0], data[1:]))
+print(result)
