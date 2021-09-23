@@ -4,6 +4,8 @@ from typing import Callable, Tuple, Dict, List
 import numpy as np
 from tqdm.auto import tqdm
 
+# from datetime import datetime, timedelta
+
 
 def distance(pointA: np.ndarray, documents: np.ndarray) -> np.ndarray:
     # допишите ваш код здесь 
@@ -32,44 +34,61 @@ def create_sw_graph(
 
     return d
 
+
+class PQ():
+    def __init__(self, search_k):
+        self.pq = [-1] * search_k
+        self.result = [-1] * search_k
+        self.k = search_k
+    p = 0
+
+    def push(self, n, d):
+        if self.p != self.k:
+            self.pq[self.p] = d
+            self.result[self.p] = n
+            self.p = self.p + 1
+            return
+
+        if n not in self.result:
+            for i, v in enumerate(self.pq):
+                if d < v or v == -1:
+                    self.pq[i] = d
+                    self.result[i] = n
+                    break
+
+
 def nsw(query_point: np.ndarray, all_documents: np.ndarray, 
         graph_edges: Dict[int, List[int]],
         search_k: int = 10, num_start_points: int = 5,
         dist_f: Callable = distance) -> np.ndarray:
     # допишите ваш код здесь 
-    class PQ():
-        pq = [-1] * search_k
-        result = [-1] * search_k
-        p = 0
-        
-        def push(self, n, d):
-            if self.p != search_k:
-                self.pq[self.p] = d
-                self.result[self.p] = n
-                self.p = self.p + 1
-                return 
-            
-            if n not in self.result:
-                for i, v in enumerate(self.pq):
-                    if d < v or v == -1:
-                        self.pq[i] = d
-                        self.result[i] = n
-                        break
-                        
-    pq = PQ()
+    pq = PQ(search_k)
+    # total = [timedelta(0)]
 
     def search(cur_point, cur_dist):
-        pq.push(cur_point, cur_dist)
+        # pq.push(cur_point, cur_dist)
         neighbors = graph_edges[cur_point]
-        neighbor_dists = dist_f(query_point, all_documents[neighbors]).flatten()
-        i_min = neighbor_dists.argmin()
-        d_min = neighbor_dists[i_min]
+        dd = all_documents[neighbors]
+        # tmp = datetime.now()
+        neighbor_dists = dist_f(query_point, dd)
+        # print(neighbor_dists.flatten().round())
+        # print(neighbors)
+        # total[0] += datetime.now() - tmp
+        i_min = neighbor_dists.argmin(axis=0)[0]
+        d_min = neighbor_dists[i_min][0]
 
         if d_min < cur_dist:
             search(neighbors[i_min], d_min)
+        else:
+            print('end', cur_point)
+            for i, d in enumerate(neighbor_dists):
+                pq.push(neighbors[i], d[0])
 
-    for start in np.random.choice(list(graph_edges.keys()), num_start_points, replace=False):
+    # for start in np.random.randint(0, len(all_documents) - 1, 1):
+    for start in np.random.randint(0, len(all_documents) - 1, num_start_points):
         start_dist = dist_f(query_point, all_documents[start:start + 1])[0]
+        print('start', start)
         search(start, start_dist)
 
+    # print(total[0])
     return np.array(pq.result)
