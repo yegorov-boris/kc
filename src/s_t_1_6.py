@@ -33,25 +33,22 @@ def create_sw_graph(
     return d
 
 
-class PQ():
+class PQ:
     def __init__(self, search_k):
         self.pq = [-1] * search_k
         self.result = [-1] * search_k
         self.k = search_k
-    p = 0
+        self.s = set()
 
     def push(self, n, d):
-        if self.p != self.k:
-            self.pq[self.p] = d
-            self.result[self.p] = n
-            self.p = self.p + 1
-            return
-
         if n not in self.result:
             for i, v in enumerate(self.pq):
                 if d < v or v == -1:
-                    self.pq[i] = d
-                    self.result[i] = n
+                    self.result.insert(i, n)
+                    self.result.pop(-1)
+                    self.pq.insert(i, d)
+                    self.pq.pop(-1)
+                    self.s.add(n)
                     break
 
 
@@ -64,19 +61,12 @@ def nsw(query_point: np.ndarray, all_documents: np.ndarray,
     roots = set()
     visited = set()
 
-    def search(cur_point, cur_dist, epoch=1):
+    def search(cur_point, cur_dist, epoch=1, max_epochs=0):
         roots.add(cur_point)
-        print(cur_point)
         neighbors = list(set(graph_edges[cur_point]) - visited)
 
         if not len(neighbors):
             return
-            # if epoch == 50:
-            #     return
-            #
-            # s = np.random.randint(0, len(all_documents) - 1)
-            # s_d = dist_f(query_point, all_documents[start:start + 1])[0][0]
-            # return search(s, s_d, epoch + 1)
 
         dd = all_documents[neighbors]
         neighbor_dists = dist_f(query_point, dd)
@@ -89,29 +79,18 @@ def nsw(query_point: np.ndarray, all_documents: np.ndarray,
         i_min = neighbor_dists.argmin(axis=0)[0]
         d_min = neighbor_dists[i_min][0]
 
-        if d_min < cur_dist:
-            return search(neighbors[i_min], d_min, epoch)
-
-        # if epoch == 50:
-        #     return
-        #
-        # for i, n in enumerate(pq.result[1:], 1):
-        #     if n not in roots:
-        #         return search(n, pq.pq[i], epoch+1)
-        #
-        # s = np.random.randint(0, len(all_documents) - 1)
-        # s_d = dist_f(query_point, all_documents[start:start + 1])[0][0]
-        # return search(s, s_d, epoch+1)
+        if d_min < cur_dist and (epoch < max_epochs or not max_epochs):
+            return search(neighbors[i_min], d_min, epoch+1, max_epochs)
 
     for _ in range(num_start_points):
-        print('------')
         start = np.random.randint(0, len(all_documents) - 1)
         start_dist = dist_f(query_point, all_documents[start:start+1])[0][0]
-        search(start, start_dist)
+        search(start, start_dist, 1, 2)
 
-        for i, n in enumerate(pq.result):
-            if n not in roots:
-                print('=====')
-                search(n, pq.pq[i])
+    # for _ in range(num_start_points):
+    for i, n in enumerate(pq.result):
+        if i and n not in roots:
+            search(n, pq.pq[i])
+                # break
 
-    return np.array(pq.result)
+    return np.array(pq.result[:search_k])
