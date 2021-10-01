@@ -10,6 +10,7 @@ dependencies:
 - hyperopt
 - pandas
 - nltk
+- scrapy
 #- jinja2
 #- pip:
 #  - yahoo-fin
