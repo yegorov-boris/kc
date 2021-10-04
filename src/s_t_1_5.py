@@ -1,4 +1,5 @@
 import string
+import json
 from collections import Counter
 from typing import Dict, List, Tuple, Union, Callable
 
@@ -13,8 +14,8 @@ import torch.nn.functional as F
 
 # Замените пути до директорий и файлов! Можете использовать для локальной отладки. 
 # При проверке на сервере пути будут изменены
-glue_qqp_dir = '/data/QQP/'
-glove_path = '/data/glove.6B.50d.txt'
+glue_qqp_dir = '../data/QQP'
+glove_path = '../data/glove.6B.50d.txt'
 
 
 class GaussianKernel(torch.nn.Module):
@@ -548,3 +549,12 @@ def dcg(ys_true, ys_pred, gain_scheme: str, ndcg_top_k: int) -> float:
     args = np.argsort(ys_pred)[-1:-(ndcg_top_k+1):-1]
     s_true = np.take(ys_true, args)
     return sum(map(lambda p: compute_gain(p[1], gain_scheme) / np.log2(p[0]), enumerate(s_true, 2)))
+
+
+sol = Solution(glue_qqp_dir, glove_path)
+sol.train(10)
+# torch.save(sol.model.embeddings.state_dict(), 'embs.emb')
+# torch.save(sol.model.mlp.state_dict(), 'mlp.mlp')
+# with open('vocab.json', 'w') as f:
+#     f.write(json.dumps(sol.vocab))
+#     f.close()
